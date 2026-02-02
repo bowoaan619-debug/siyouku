@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>独代业绩数据看板5.3版 </title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        /* --- 基础样式 --- */
+        :root { 
+            --bg: #0b0e14; --card: #161b22; --text: #c9d1d9; 
+            --gold: #ffd700; --cyan: #00f2ff; 
+            --blue: #388bfd; --purple: #a56cc1;
+            --red: #ff7b72; --green: #3fb950;
+            --modal-bg: #1c2128;
+        }
+        body { background: var(--bg); color: var(--text); font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; padding: 16px 36px; }
+        
+        /* 布局组件 */
+        .header-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 12px; margin-bottom: 18px; }
+        .upload-btn { background: #238636; color: #fff; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold; transition:0.3s;}
+        .upload-btn:hover { background: #2ea043; box-shadow: 0 0 10px rgba(46,160,67,0.4); }
+        .settings-btn { background: transparent; color: #8b949e; border: 1px solid #30363d; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+        .settings-btn:hover { color: #fff; border-color: #8b949e; }
+        .copy-btn { background: var(--blue); color: #fff; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .copy-btn:hover { background: #1e70bf; }
+
+        /* Loading */
+        .loading-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+        .loading-box { background: #1c2128; padding: 20px 40px; border-radius: 8px; border: 1px solid #30363d; color: #fff; font-weight: bold; display: flex; align-items: center; gap: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .spinner { width: 20px; height: 20px; border: 3px solid #388bfd; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 25px; }
+        .card-global { background: linear-gradient(180deg, #151a23 0%, #0d1117 100%); border: 1px solid #30363d; border-top: 3px solid var(--blue); border-radius: 8px; padding: 18px; }
+        .kpi-title { font-size: 13px; color: #8b949e; margin-bottom: 6px; font-weight: bold; }
+        .kpi-val { font-size: 26px; font-weight: bold; color: #fff; margin: 4px 0; font-family: monospace; }
+        .kpi-sub { font-size: 12px; display: flex; justify-content: space-between; border-top: 1px solid #30363d; padding-top: 8px; margin-top: 8px; color: #7d8590; }
+
+        /* ----------------------------------------------------
+           NEW: 季度目标看板布局 (高度锁定 260px)
+           ---------------------------------------------------- */
+        .dashboard-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 35px;
+            height: 260px; /* 核心修改：固定高度，确保紧凑 */
+        }
+
+        /* 左侧：大区总卡片 (30%) */
+        .dashboard-left {
+            width: 25%;
+            min-width: 280px;
+            height: 100%;
+        }
+        .total-card-big {
+            height: 100%;
+            background: linear-gradient(180deg, #1e1b10 0%, #161b22 100%);
+            border: 1px solid var(--gold);
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-sizing: border-box;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        /* 右侧：运营单位网格 (5列 x 2行) (75%) */
+        .dashboard-right {
+            flex: 1;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(5, 1fr); /* 5列 */
+            grid-template-rows: repeat(2, 1fr);    /* 2行 */
+            gap: 10px;
+        }
+
+        /* 小卡片样式 (Vertical Layout for narrow columns) */
+        .mini-card {
+            background: #1c2128;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 15px;
+            display: flex;
+            flex-direction: column; /* 改为上下结构，适应窄卡片 */
+            justify-content: space-between;
+            position: relative;
+            transition: all 0.2s;
+            cursor: default;
+        }
+        .mini-card:hover {
+            border-color: #777;
+            background: #232830;
+            transform: translateY(-2px);
+            z-index: 10;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        /* 小卡片内部元素 */
+        .mini-header-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+        .mini-name { font-weight: bold; font-size: 14px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+        .mini-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; font-family: monospace; transform: scale(0.9); transform-origin: right center;}
+        
+        .mini-center-val { 
+            font-family: "Menlo", monospace; 
+            font-weight: bold; 
+            font-size: 28px; /* 大数字 */
+            text-align: left; 
+            margin: 5px 0;
+            line-height: 1;
+        }
+        .mini-sub-label { font-size: 10px; color: #666; margin-top: -2px; }
+
+        .mini-footer-bar { width: 100%; }
+        .mini-bar-bg { height: 4px; background: #0d1117; border-radius: 2px; overflow: hidden; position: relative; margin-top: 5px; }
+        
+        /* 悬浮详情弹窗 (Hover Popover) */
+        .mini-popover {
+            display: none;
+            position: absolute;
+            top: 100%; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 220px;
+            background: rgba(20, 25, 30, 0.98);
+            border: 1px solid var(--blue);
+            backdrop-filter: blur(10px);
+            padding: 12px;
+            border-radius: 6px;
+            z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            font-size: 12px;
+            line-height: 1.8;
+            margin-top: 5px;
+        }
+        .mini-card:hover .mini-popover { display: block; }
+        
+        /* 针对最后两列的 Popover 向左弹出，防止溢出屏幕 */
+        .dashboard-right .mini-card:nth-child(5n) .mini-popover,
+        .dashboard-right .mini-card:nth-child(5n-1) .mini-popover {
+            left: auto; right: 0; transform: none;
+        }
+
+        .pop-row { display: flex; justify-content: space-between; color: #bbb; border-bottom: 1px dashed #333; padding-bottom: 2px; margin-bottom: 2px; }
+        .pop-val { color: #fff; font-weight: bold; font-family: monospace; }
+
+        /* 状态颜色 */
+        .bg-ok { background: rgba(63, 185, 80, 0.2); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.4); }
+        .bg-warn { background: rgba(255, 123, 114, 0.2); color: var(--red); border: 1px solid rgba(255, 123, 114, 0.4); }
+        .bar-fill-ok { background: linear-gradient(90deg, #2ea043, #3fb950); height: 100%; }
+        .bar-fill-warn { background: linear-gradient(90deg, #8c1c13, #ff7b72); height: 100%; }
+        
+        /* 左侧大卡片样式微调 (适配高度) */
+        .big-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .big-title { font-size: 18px; font-weight: bold; color: var(--gold); display: flex; align-items: center; gap: 8px; }
+        .big-main-val { font-size: 48px; font-weight: bold; color: #fff; font-family: monospace; line-height: 1; margin: 5px 0 15px 0; }
+        .big-sub-val { font-size: 13px; color: #888; display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .big-progress-area { margin-top: auto; }
+
+        /* 其他通用样式保持不变 */
+        .part-title { border-left: 4px solid; padding-left: 12px; margin: 35px 0 18px 0; font-size: 18px; font-weight: bold; color: #fff; background: #1c2128; padding: 10px 18px; border-radius: 0 8px 8px 0; }
+        .box { background: var(--card); border: 1px solid #30363d; border-radius: 8px; padding: 18px; margin-bottom: 18px; }
+        .box-title { font-size: 15px; margin-bottom: 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; color: #fff; }
+        .part2-header-merged { background: #1c2128; padding: 12px 18px; border-radius: 6px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid var(--gold); }
+        .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 22px; }
+        .ctrl-bar-movers { background: #1c2128; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; border-left: 3px solid var(--red); font-size: 13px; }
+        .time-switch-group { display: flex; gap: 2px; background: #0d1117; padding: 2px; border-radius: 4px; border: 1px solid #30363d; }
+        .time-btn { background: transparent; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 12px; border-radius: 3px; transition: 0.2s; }
+        .time-btn.active { background: var(--blue); color: #fff; font-weight: bold; }
+        .time-btn:hover:not(.active) { color: #ccc; background: #222; }
+        .ctrl-bar-detail { background: #1c2128; padding: 12px; border-radius: 6px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; border-left: 3px solid var(--gold); font-size: 13px; }
+        select { background: #0d1117; color: #fff; border: 1px solid #30363d; padding: 6px; border-radius: 4px; min-width: 180px; font-size: 12px; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+        .data-table th { text-align: center; color: #8b949e; padding: 10px 6px; border-bottom: 1px solid #30363d; background: #151a23; position: sticky; top: 0; z-index: 10; transition: color 0.2s; }
+        .data-table td { padding: 8px 6px; border-bottom: 1px solid #21262d; text-align: center; }
+        .data-table tr:hover { background: #1c2128; }
+        .th-group { border-bottom: 1px solid #444 !important; background: #0d1117 !important; font-weight: bold; color: #fff !important; cursor: default !important; }
+        .th-sortable { cursor: pointer; position: relative; }
+        .th-sortable:hover { color: #fff; background: #1f2530; }
+        .th-sortable.active-sort { color: #fff; background: #232b38; }
+        .sort-icon { font-size: 10px; margin-left: 4px; color: #555; }
+        .active-sort .sort-icon { color: var(--blue); }
+        .td-name { text-align: left !important; font-weight: bold; color: #fff; position: sticky; left: 0; z-index: 5; background: #161b22; border-right: 2px solid #30363d; box-shadow: 2px 0 5px rgba(0,0,0,0.3); }
+        .group-sep { border-right: 1px dashed #555 !important; }
+        .total-row td { background: #1c222b !important; color: #fff; font-weight: bold; border-top: 2px solid var(--blue); font-size: 13px; }
+        .total-row .td-name { background: #1c222b !important; color: var(--blue); }
+        .num { font-family: monospace; font-weight: bold; color: #fff; }
+        .up { color: var(--red); } .down { color: var(--green); }
+        .diff-tag { font-family: monospace; font-weight: bold; font-size: 10px; margin-left:2px; transform: scale(0.9); display: inline-block; }
+        .chart-h { height: 400px; } .chart-s { height: 320px; } .chart-top-h { height: 500px; }
+        .tag-fw { background: rgba(255, 215, 0, 0.15); color: var(--gold); padding: 1px 6px; border-radius: 4px; font-size: 11px; border: 1px solid rgba(255, 215, 0, 0.3); }
+        .tag-nfw { background: rgba(0, 242, 255, 0.15); color: var(--cyan); padding: 1px 6px; border-radius: 4px; font-size: 11px; border: 1px solid rgba(0, 242, 255, 0.3); }
+        .tt-container { font-size: 12px; line-height: 1.6; text-align: left; min-width: 300px; }
+        .tt-header { font-size: 13px; font-weight: bold; color: #fff; margin-bottom: 6px; border-bottom: 1px solid #555; padding-bottom: 4px; }
+        .tt-sub-text { font-size: 11px; color: #aaa; font-weight: normal; margin-left: 5px; }
+        .tt-section { margin-bottom: 10px; background: rgba(255,255,255,0.03); padding: 6px; border-radius: 4px; }
+        .tt-sec-title { font-weight: bold; margin-bottom: 4px; display: block; font-size: 12px; }
+        .tt-row { display: flex; justify-content: space-between; color: #bbb; margin-bottom: 3px; }
+        .tt-val { font-family: monospace; font-weight: bold; color: #fff; }
+        .tt-pct-up { color: var(--red); } .tt-pct-down { color: var(--green); }
+        .chart-header-block { text-align: center; margin-bottom: 10px; padding-bottom: 8px; font-weight: bold; font-size: 14px; }
+        .header-fw { color: var(--gold); border-bottom: 2px solid rgba(255, 215, 0, 0.3); }
+        .header-nfw { color: var(--cyan); border-bottom: 2px solid rgba(0, 242, 255, 0.3); }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal-content { background: var(--modal-bg); border: 1px solid #30363d; border-radius: 12px; width: 800px; max-width: 95%; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); display:flex; flex-direction:column; max-height: 85vh; }
+        .setting-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+        .setting-table th { text-align: left; color: #8b949e; border-bottom: 1px solid #555; padding: 6px; }
+        .setting-table td { padding: 6px; border-bottom: 1px solid #333; color: #ccc; }
+        .detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .detail-table th { background: #151a23; color: #8b949e; padding: 8px; border-bottom: 1px solid #30363d; text-align: left; position: sticky; top: 0; cursor: pointer; user-select: none; }
+        .detail-table th:hover { background: #1f2530; color: #fff; }
+        .detail-table td { padding: 8px; border-bottom: 1px solid #2a2f38; color: #eee; }
+        .detail-table tr:hover { background: #222; }
+        .date-picker-box { background: #0d1117; border: 1px solid #30363d; color: #fff; padding: 5px 10px; border-radius: 4px; font-family: monospace; outline: none; cursor: pointer; }
+        .date-picker-box::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        .custom-ctrl-panel { background: #1c2128; border: 1px solid #30363d; border-radius: 8px; padding: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        .filter-label { font-size: 11px; color: #8b949e; font-weight: bold; }
+        .filter-select { background: #0d1117; color: #fff; border: 1px solid #30363d; padding: 6px; border-radius: 4px; min-width: 140px; font-size: 12px; }
+        .filter-input { background: #0d1117; color: #fff; border: 1px solid #30363d; padding: 6px; border-radius: 4px; min-width: 140px; font-size: 12px; }
+        .date-group { display: flex; flex-direction: column; gap: 5px; border-left: 1px solid #444; padding-left: 15px; }
+        .date-range-row { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #ccc; }
+        .compare-btn { background: var(--purple); color: #fff; border: none; padding: 8px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; height: 32px; transition: 0.3s; }
+        .compare-btn:hover { background: #8a4baf; box-shadow: 0 0 10px rgba(165, 108, 193, 0.4); }
+        .custom-result-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        .res-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 15px; border-top: 3px solid var(--purple); }
+        .res-title { font-size: 12px; color: #8b949e; margin-bottom: 5px; }
+        .res-val { font-size: 20px; font-weight: bold; color: #fff; font-family: monospace; }
+        .res-sub { font-size: 11px; margin-top: 5px; color: #666; display: flex; justify-content: space-between; }
+        .res-tag { padding: 1px 4px; border-radius: 3px; font-size: 10px; }
+        .tag-a { background: rgba(56, 139, 253, 0.2); color: var(--blue); }
+        .tag-b { background: rgba(139, 148, 158, 0.2); color: #8b949e; }
+    </style>
+</head>
+<body>
+
+<div id="page-loader" class="loading-mask" style="display:none;">
+    <div class="loading-box">
+        <div class="spinner"></div>
+        <span>🔄 数据计算中...</span>
+    </div>
+</div>
+
+<div class="header-bar">
+    <div>
+        <h2 style="margin:0; font-size: 20px;">🌌 S5.3 独代端口·业绩考核可视化面板</h2>
+        <span id="date-info" style="font-size: 11px; color: #8b949e;">Waiting for data...</span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+        <span style="font-size:12px; color:#888;">📅 截止:</span>
+        <input type="date" id="datePicker" class="date-picker-box" onchange="updateByDate()">
+        <button class="settings-btn" onclick="openSettings()">⚙️ 季度任务</button>
+        <button class="upload-btn" onclick="document.getElementById('fileInp').value=null; document.getElementById('fileInp').click()">📂 导入数据</button>
+        <input type="file" id="fileInp" style="display: none;" accept=".xlsx,.xls,.csv">
+    </div>
+</div>
+
+<div id="global-section" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #333; padding-bottom:8px;">
+        <div style="font-weight:bold; color:var(--blue); font-size:14px;">🔥 全局·运营单位总大盘</div>
+        <select id="globalUnitSelect" onchange="renderGlobalKPI(this.value)" style="background:#0d1117; color:#fff; border:1px solid #333; padding:4px; font-size:12px; border-radius:4px;">
+            <option value="ALL">🔵 全局汇总</option>
+        </select>
+    </div>
+    <div class="kpi-grid" id="kpi-global"></div>
+</div>
+
+<div id="target-section" style="display:block;">
+    <div style="margin-bottom: 12px; font-weight: bold; color: var(--green); border-bottom: 1px solid #333; padding-bottom: 8px; font-size: 14px;">
+        🎯 季度目标·净业绩考核
+    </div>
+    <div id="dashboard-container" class="dashboard-container">
+        <div style="grid-column: 1 / -1; text-align: center; color: #444; padding: 35px; border: 2px dashed #30363d; border-radius: 10px; width: 100%;">
+            请点击右上角 [⚙️ 季度任务] 添加目标
+        </div>
+    </div>
+</div>
+
+<div class="part-title" style="border-color: var(--blue);">PART 1: 运营单位·业绩监控表</div>
+<div class="box">
+    <div class="box-title" style="color:var(--blue)">📊 各单位核心指标 (全指标环比 & 结构占比)</div>
+    <div style="overflow-x: auto; max-height: 450px;">
+        <table class="data-table" id="unit-table">
+            <thead>
+                <tr>
+                    <th rowspan="2" class="th-group td-name" onclick="sortTable('name')" class="th-sortable" style="text-align:left; padding-left:12px; z-index:10; cursor:pointer;">
+                        运营单位 <span id="sort-icon-name" class="sort-icon"></span>
+                    </th>
+                    <th colspan="3" class="th-group group-sep">昨日营收 (战况)</th>
+                    <th colspan="3" class="th-group group-sep">7日日均 (短期战力)</th>
+                    <th colspan="3" class="th-group group-sep">季日均 (长期战力)</th>
+                    <th colspan="2" class="th-group">结构占比</th>
+                </tr>
+                <tr>
+                    <th class="th-sortable" onclick="sortTable('dTotal')">总额+环比 <span id="sort-icon-dTotal" class="sort-icon">↓</span></th>
+                    <th class="th-sortable" onclick="sortTable('dFw')" style="color:var(--gold)">框架+环比 <span id="sort-icon-dFw" class="sort-icon"></span></th>
+                    <th class="th-sortable group-sep" onclick="sortTable('dNfw')" style="color:var(--cyan)">企业+环比 <span id="sort-icon-dNfw" class="sort-icon"></span></th>
+                    
+                    <th class="th-sortable" onclick="sortTable('wTotal')">总日均+环比 <span id="sort-icon-wTotal" class="sort-icon"></span></th>
+                    <th class="th-sortable" onclick="sortTable('wFw')" style="color:var(--gold)">框架+环比 <span id="sort-icon-wFw" class="sort-icon"></span></th>
+                    <th class="th-sortable group-sep" onclick="sortTable('wNfw')" style="color:var(--cyan)">企业+环比 <span id="sort-icon-wNfw" class="sort-icon"></span></th>
+                    
+                    <th class="th-sortable" onclick="sortTable('qTotal')">总日均+环比 <span id="sort-icon-qTotal" class="sort-icon"></span></th>
+                    <th class="th-sortable" onclick="sortTable('qFw')" style="color:var(--gold)">框架+环比 <span id="sort-icon-qFw" class="sort-icon"></span></th>
+                    <th class="th-sortable group-sep" onclick="sortTable('qNfw')" style="color:var(--cyan)">企业+环比 <span id="sort-icon-qNfw" class="sort-icon"></span></th>
+                    
+                    <th class="th-sortable" onclick="sortTable('fwRatio')" style="color:var(--gold)">框架% <span id="sort-icon-fwRatio" class="sort-icon"></span></th>
+                    <th class="th-sortable" onclick="sortTable('nfwRatio')" style="color:var(--cyan)">企业% <span id="sort-icon-nfwRatio" class="sort-icon"></span></th>
+                </tr>
+            </thead>
+            <tbody id="unit-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="box" id="movers-section" style="display:none;">
+    <div class="box-title">
+        <span id="movers-title">🚀 行业涨跌风向标 (今日 vs 昨日)</span>
+        <div style="font-size:11px; color:#888;">Top 5 行业变化 (金额 + 环比%) - <span style="color:var(--blue)">点击柱状图查看Top10客户详情</span></div>
+    </div>
+    <div class="ctrl-bar-movers">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <strong>⚡ 筛选单位:</strong>
+            <select id="moversSelect"><option value="ALL">🔵 全局汇总</option></select>
+        </div>
+        <div class="time-switch-group">
+            <button class="time-btn active" onclick="setTrendMode('day', this)">📅 日</button>
+            <button class="time-btn" onclick="setTrendMode('week', this)">🗓️ 周</button>
+            <button class="time-btn" onclick="setTrendMode('quarter', this)">📊 季</button>
+        </div>
+    </div>
+    <div class="split-grid">
+        <div><div class="chart-header-block header-fw">👑 框架业务 (Top 5 变动)</div><div id="chart-movers-fw" class="chart-s"></div></div>
+        <div><div class="chart-header-block header-nfw">🏢 企业业务 (Top 5 变动)</div><div id="chart-movers-nfw" class="chart-s"></div></div>
+    </div>
+</div>
+
+<div class="part2-header-merged">
+    <div style="font-size:18px; font-weight:bold; color:#fff;">PART 2: 深度诊断 (框架 vs 企业)</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+        <strong>🔍 诊断对象：</strong>
+        <select id="unitSelect" onchange="renderIndustryChart(this.value)"><option value="ALL">🔵 全局汇总</option></select>
+    </div>
+</div>
+<div class="box"><div class="box-title">🏭 行业消费分层对比</div><div id="chart-ind-split" class="chart-h"></div></div>
+<div class="split-grid">
+    <div class="box">
+        <div class="box-title" style="color:var(--gold)">
+            <span>🏆 框架 Top 10 (本季度)</span>
+            <select id="top10UnitSelect" onchange="renderTop10Charts(this.value)" style="padding:2px; font-size:12px; font-weight:normal; width:auto; border-color:#444;">
+                <option value="ALL">🔵 全局汇总</option>
+            </select>
+        </div>
+        <div id="chart-top-fw" class="chart-top-h"></div>
+    </div>
+    <div class="box">
+        <div class="box-title" style="color:var(--cyan)">🚀 企业 Top 10 (本季度)</div>
+        <div id="chart-top-nfw" class="chart-top-h"></div>
+    </div>
+</div>
+<div class="box"><div class="box-title"><span>📈 90天走势隔离</span><select id="trendUnitSelect" onchange="renderTrendChart(this.value)"><option value="ALL">🔵 全局汇总</option></select></div><div id="chart-trend-split" style="height: 280px;"></div></div>
+
+<div class="part-title" style="border-color: var(--purple);">PART 3: 自定义多维对比 (Custom Analysis)</div>
+<div class="box">
+    <div class="custom-ctrl-panel">
+        <div class="filter-group"><span class="filter-label">运营端口</span><select id="f-unit" class="filter-select"><option value="ALL">(全部)</option></select></div>
+        <div class="filter-group"><span class="filter-label">客户名称 (搜)</span><input list="dl-client" id="f-client" class="filter-input" placeholder="(全部)"><datalist id="dl-client"></datalist></div>
+        <div class="filter-group"><span class="filter-label">框架是否</span><select id="f-fw" class="filter-select"><option value="ALL">(全部)</option><option value="是">是</option><option value="否">否</option></select></div>
+        <div class="filter-group"><span class="filter-label">一级行业</span><select id="f-ind1" class="filter-select"><option value="ALL">(全部)</option></select></div>
+        <div class="filter-group"><span class="filter-label">二级行业</span><select id="f-ind2" class="filter-select"><option value="ALL">(全部)</option></select></div>
+        <div class="date-group">
+            <div class="date-range-row"><span class="res-tag tag-a">期间 A</span><input type="date" id="d-start-a" class="date-picker-box" style="width:110px;"><span>至</span><input type="date" id="d-end-a" class="date-picker-box" style="width:110px;"></div>
+            <div class="date-range-row"><span class="res-tag tag-b">期间 B</span><input type="date" id="d-start-b" class="date-picker-box" style="width:110px;"><span>至</span><input type="date" id="d-end-b" class="date-picker-box" style="width:110px;"></div>
+        </div>
+        <button class="compare-btn" onclick="calcCustomStats()">开始分析</button>
+    </div>
+    <div id="custom-result" class="custom-result-grid"><div style="grid-column:1/-1; text-align:center; color:#666; padding:20px;">请选择筛选条件和日期，点击“开始分析”</div></div>
+</div>
+
+<div id="settings-modal" class="modal-overlay">
+    <div class="modal-content">
+        <div style="display:flex;justify-content:space-between;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:15px;">
+            <span style="font-weight:bold;color:#fff;font-size:16px;">🎯 季度任务配置</span>
+            <button onclick="closeSettings()" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;">&times;</button>
+        </div>
+        <div style="background:#161b22; padding:10px; border-radius:6px; margin-bottom:15px; border:1px dashed #30363d;">
+            <div style="font-size:12px; color:#8b949e; margin-bottom:5px;">📋 快捷录入 (支持 Excel 复制粘贴，自动识别多行)</div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+                <textarea id="smart-paste-area" placeholder="在此处粘贴 Excel 内容..." style="height:60px; background:#0d1117; border:1px solid #30363d; color:#fff; padding:6px; border-radius:4px; font-family:monospace; resize:none;"></textarea>
+                <button onclick="smartParse()" class="upload-btn" style="background:var(--purple); border:none; padding:6px 12px; width:100%;">⚡ 识别并批量导入</button>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 70px; gap:8px; margin-bottom:15px; padding-top:10px; border-top:1px solid #333;">
+            <input type="text" id="set-name" placeholder="运营单位">
+            <input type="number" id="set-val" placeholder="季度任务">
+            <input type="number" id="set-penalty" placeholder="违规/赔付" style="border-color:var(--red); color:#ffcccb;">
+            <button onclick="saveTarget()" class="upload-btn" style="background:var(--blue);padding:0;">保存</button>
+        </div>
+        <div style="max-height:250px;overflow-y:auto;border:1px solid #333;border-radius:4px;">
+            <table class="setting-table" style="margin-top:0;width:100%;">
+                <thead style="background:#151a23;position:sticky;top:0;"><tr><th>运营单位</th><th>季度任务</th><th style="color:var(--red)">违规/赔付</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody id="setting-list"></tbody>
+            </table>
+        </div>
+        <div style="margin-top:15px;text-align:right;"><button onclick="clearAllTargets()" style="background:#30363d;color:#aaa;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;">清空</button></div>
+    </div>
+</div>
+
+<div id="ind-detail-modal" class="modal-overlay">
+    <div class="modal-content" style="width:850px;">
+        <div style="display:flex;justify-content:space-between;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:10px;">
+            <div>
+                <span id="detail-title" style="font-weight:bold;color:#fff;font-size:16px;">行业详情</span>
+                <span id="detail-sub" style="font-size:12px;color:#888;margin-left:10px;"></span>
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button onclick="copyDetailText()" class="copy-btn">📋 复制文本</button>
+                <button onclick="$('ind-detail-modal').style.display='none'" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;">&times;</button>
+            </div>
+        </div>
+        <div style="flex:1; overflow-y:auto; border:1px solid #333; border-radius:4px;">
+            <table class="detail-table">
+                <thead>
+                    <tr>
+                        <th>运营单位</th><th>公司名称</th>
+                        <th onclick="sortDetail('diff')">变动额 <span id="icon-d-diff">▼</span></th>
+                        <th onclick="sortDetail('diff')">影响占比(%) <span id="icon-d-ratio"></span></th>
+                        <th onclick="sortDetail('wPct')">7日环比 <span id="icon-d-wPct"></span></th>
+                        <th onclick="sortDetail('qPct')">季度环比 <span id="icon-d-qPct"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="detail-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const $ = id => document.getElementById(id);
+    const fmtWan = n => `¥${(n/10000).toFixed(1)}万`;
+    const fmtDiffWan = n => `${n>0?'+':''}${(n/10000).toFixed(1)}万`;
+    const fmtPct = (c, p) => { if(!p)return'-'; const v=(c-p)/p*100; const cls=v>=0?'up':'down'; const sym=v>=0?'▲':'▼'; return `<span class="diff-tag ${cls}">${sym}${Math.abs(v).toFixed(1)}%</span>`; };
+
+    let rawData=[], cleanData=[], allDateCols=[], dateCols=[], colMap = {};
+    let targets = JSON.parse(localStorage.getItem('s2_targets')) || {}; 
+    let currentTrendMode = 'day';
+    let tableRowsData = [];
+    let currentSort = { key: 'dTotal', order: 'desc' };
+    let detailData = [], detailTotal = 0, detailSortKey = 'diff', detailSortOrder = 'desc';
+
+    function setTrendMode(mode, btn) {
+        currentTrendMode = mode;
+        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        let titleMap = { 'day': '🚀 行业涨跌风向标 (今日 vs 昨日)', 'week': '🚀 行业涨跌风向标 (近7天 vs 上7天)', 'quarter': '🚀 行业涨跌风向标 (本季 vs 上季同天数)' };
+        $('movers-title').innerText = titleMap[mode];
+        renderTop3Growth($('moversSelect').value);
+    }
+
+    function smartParse() {
+        const raw = $('smart-paste-area').value.trim();
+        if(!raw) { alert("请先粘贴内容！"); return; }
+        const lines = raw.split('\n');
+        let successCount = 0;
+        lines.forEach(line => {
+            const cleanLine = line.trim().replace(/，/g, ' ').replace(/\t/g, ' ').replace(/\s+/g, ' ');
+            if(!cleanLine) return;
+            const nums = cleanLine.match(/-?\d+(\.\d+)?/g);
+            let name = cleanLine.replace(/-?\d+(\.\d+)?/g, '').replace(/,/g,'').trim();
+            if(name && nums && nums.length > 0) {
+                const values = nums.map(n => Math.abs(parseFloat(n)));
+                const maxVal = Math.max(...values);
+                const others = values.filter(v => v !== maxVal);
+                let penalty = 0;
+                if(others.length > 0) penalty = others[0]; else if(nums.length > 1) penalty = values[1];
+                targets[name] = { target: maxVal, penalty: penalty };
+                successCount++;
+            }
+        });
+        if(successCount > 0) {
+            localStorage.setItem('s2_targets', JSON.stringify(targets));
+            renderSettingsList(); renderDashboard(); $('smart-paste-area').value = ''; alert(`✅ 成功导入 ${successCount} 条任务配置！`);
+        } else { alert("❌ 未识别到有效数据，请检查格式 (名称 任务值)"); }
+    }
+
+    function openSettings() { $('settings-modal').style.display = 'flex'; renderSettingsList(); }
+    function closeSettings() { $('settings-modal').style.display = 'none'; }
+    function saveTarget() {
+        const name=$('set-name').value.trim(); const val=parseFloat($('set-val').value); const pen=parseFloat($('set-penalty').value)||0; 
+        if(!name||!val){alert("请输入名称和任务值");return;}
+        targets[name] = { target: val, penalty: pen };
+        localStorage.setItem('s2_targets',JSON.stringify(targets));
+        $('set-name').value=''; $('set-val').value=''; $('set-penalty').value='';
+        renderSettingsList(); renderDashboard();
+    }
+    function editTarget(name) {
+        const conf = targets[name]; if(!conf) return;
+        const tVal = (typeof conf === 'number') ? conf : conf.target;
+        const pVal = (typeof conf === 'number') ? 0 : (conf.penalty || 0);
+        $('set-name').value = name; $('set-val').value = tVal; $('set-penalty').value = pVal;
+    }
+    function removeTarget(n){ delete targets[n]; localStorage.setItem('s2_targets',JSON.stringify(targets)); renderSettingsList(); renderDashboard(); }
+    function clearAllTargets(){ if(confirm("确定清空?")){targets={};localStorage.setItem('s2_targets',JSON.stringify(targets));renderSettingsList();renderDashboard();} }
+    function renderSettingsList() {
+        const tb=$('setting-list'); tb.innerHTML='';
+        const unitsInFile=cleanData.length>0?[...new Set(cleanData.map(r=>r[colMap.unit]))]:[];
+        Object.keys(targets).forEach(n=>{
+            const conf = targets[n];
+            const tVal = (typeof conf === 'number') ? conf : conf.target;
+            const pVal = (typeof conf === 'number') ? 0 : (conf.penalty || 0);
+            const m=cleanData.length>0?unitsInFile.some(u=>u.trim()===n.trim()):false;
+            tb.innerHTML+=`<tr><td>${n}</td><td>${tVal}万</td><td style="color:var(--red)">${pVal>0?'-'+pVal+'万':'-'}</td><td>${m?'<span style="color:var(--green)">已匹配</span>':'<span style="color:var(--red)">未匹配</span>'}</td><td><button onclick="editTarget('${n}')" style="color:var(--blue);background:none;border:none;cursor:pointer;margin-right:5px;">✎</button><button onclick="removeTarget('${n}')" style="color:#f00;background:none;border:none;cursor:pointer;">✕</button></td></tr>`;
+        });
+    }
+
+    // --- 核心：看板逻辑 (5列 x 2行) ---
+    function renderDashboard() {
+        const container = $('dashboard-container');
+        const targetKeys = Object.keys(targets);
+        
+        if(targetKeys.length === 0) {
+            container.innerHTML = `<div style="text-align:center;color:#444;padding:35px;border:2px dashed #30363d;border-radius:10px;width:100%;">暂无任务配置，请点击右上角 [⚙️ 季度任务] 添加目标</div>`;
+            return;
+        }
+
+        const now = new Date();
+        const lastDate = dateCols.length > 0 ? new Date(dateCols[dateCols.length-1]) : now;
+        const qIdx = Math.floor(lastDate.getMonth()/3);
+        const qStart = new Date(lastDate.getFullYear(), qIdx*3, 1);
+        const qEnd = new Date(lastDate.getFullYear(), (qIdx+1)*3, 0);
+        const totalDays = Math.floor((qEnd - qStart)/864e5) + 1;
+        const passDays = Math.floor((lastDate - qStart)/864e5) + 1;
+        const remainDays = totalDays - passDays;
+        const timePct = (passDays / totalDays * 100).toFixed(1);
+        
+        let dataMap = {};
+        if(cleanData.length > 0) {
+            const wS = new Date(lastDate); wS.setDate(lastDate.getDate()-6);
+            cleanData.forEach(r => {
+                const u = r[colMap.unit].trim();
+                if(!dataMap[u]) dataMap[u] = { qSum:0, wSum:0 };
+                dateCols.forEach(d => {
+                    const dd = new Date(d); const v = parseFloat(r[d])||0;
+                    if(dd >= qStart) dataMap[u].qSum += v;
+                    if(dd >= wS) dataMap[u].wSum += v;
+                });
+            });
+        }
+
+        // 计算总盘
+        let totalTarget=0, totalNet=0, totalPenalty=0, totalWSum=0;
+        targetKeys.forEach(name => {
+            const conf = targets[name];
+            totalTarget += (typeof conf === 'number') ? conf : conf.target;
+            totalPenalty += (typeof conf === 'number') ? 0 : (conf.penalty || 0);
+            const real = dataMap[name.trim()];
+            if(real) { totalNet += (real.qSum / 10000); totalWSum += real.wSum; }
+        });
+        totalNet -= totalPenalty;
+        
+        const tRate = totalTarget ? (totalNet/totalTarget*100).toFixed(1) : 0;
+        const tWAvg = (totalWSum/7)/10000;
+        const tProjRate = totalTarget ? ((totalNet+(remainDays*tWAvg))/totalTarget*100).toFixed(1) : 0;
+        const tNeeded = totalTarget - totalNet;
+        let tReqD=0, tGap=0;
+        if(tNeeded>0){ tReqD = tNeeded/remainDays; tGap = tReqD - tWAvg; } else { tReqD=0; tGap = -tWAvg; }
+
+        const tLag = parseFloat(tProjRate) < 100;
+        const tCls = tLag ? 'bg-warn' : 'bg-ok';
+        const tTxt = tLag ? '⚠️ 落后' : '🚀 超前';
+        const tBar = tLag ? 'fill-warn' : 'fill-ok';
+        const tCol = tLag ? 'var(--red)' : 'var(--green)';
+        const tGapTxt = tGap>0?`+${tGap.toFixed(2)}万`:`${tGap.toFixed(2)}万`;
+        const tGapCls = tGap>0?'gap-bad':'gap-good';
+        const tGapLbl = tGap>0?'缺口':'盈余';
+
+        // 生成 HTML
+        let html = '';
+        
+        // 左侧：大卡片 (保持原始样式，但适配高度)
+        html += `
+        <div class="dashboard-left">
+            <div class="total-card-big">
+                <div>
+                    <div class="big-header"><div class="big-title">🏆 大区总目标</div><div class="t-badge ${tCls}" style="font-size:14px;padding:4px 10px;">${tTxt}</div></div>
+                    <div style="font-size:14px;color:#8b949e">🔮 季度预计达成</div>
+                    <div class="big-main-val" style="color:${tCol}">${tProjRate}%</div>
+                    <div class="big-sub-val"><span>实际达成:</span><span style="color:#fff;font-weight:bold">${tRate}%</span></div>
+                    <div class="big-sub-val"><span>后续日均:</span><span style="color:#fff">${tReqD.toFixed(2)}万</span></div>
+                    <div class="big-sub-val"><span>差额(${tGapLbl}):</span><span class="${tGapCls}">${tGapTxt}</span></div>
+                    <div class="big-sub-val"><span>7日日均:</span><span style="color:#8b949e">${tWAvg.toFixed(2)}万</span></div>
+                </div>
+                <div class="big-progress-area">
+                    <div class="t-prog-labels" style="margin-bottom:8px;"><span>时间进度</span><span style="color:#fff;font-weight:bold;">⏳ ${timePct}%</span></div>
+                    <div class="track-container" style="height:16px;"><div class="time-marker" style="left:${Math.min(timePct,100)}%"></div><div class="bar-actual ${tBar}" style="width:${Math.min(tRate,100)}%"></div></div>
+                    <div class="t-footer" style="margin-top:10px;"><span>目标: ${totalTarget.toFixed(0)}万</span><span>已完: ${totalNet.toFixed(1)}万</span></div>
+                </div>
+            </div>
+        </div>`;
+
+        // 右侧：小卡片网格 (5列 x 2行)
+        html += `<div class="dashboard-right">`;
+        
+        const visibleUnits = targetKeys.slice(0, 10); // 只显示前10个
+        
+        visibleUnits.forEach(name => {
+            const conf = targets[name];
+            const tVal = (typeof conf === 'number') ? conf : conf.target;
+            const pVal = (typeof conf === 'number') ? 0 : (conf.penalty || 0);
+            const real = dataMap[name.trim()];
+            let net=0, rate=0, proj=0, req=0, gap=0, wAvg=0;
+            if(real) {
+                const rWan = real.qSum/10000; net = rWan - pVal;
+                rate = (net/tVal*100).toFixed(1);
+                wAvg = (real.wSum/7)/10000;
+                proj = ((net + (remainDays*wAvg))/tVal*100).toFixed(1);
+                const need = tVal - net;
+                if(need>0){ req = need/remainDays; gap = req - wAvg; } else { req=0; gap = -wAvg; }
+            }
+            
+            const uLag = parseFloat(proj) < 100;
+            const uCol = uLag ? 'var(--red)' : 'var(--green)';
+            const uBar = uLag ? 'bar-fill-warn' : 'bar-fill-ok';
+            const uGapTxt = gap>0?`+${gap.toFixed(2)}万`:`${gap.toFixed(2)}万`;
+            const uGapCls = gap>0?'gap-bad':'gap-good';
+
+            // 小卡片布局：改为垂直结构，适应窄列
+            html += `
+            <div class="mini-card">
+                <div class="mini-header-row">
+                    <div class="mini-name" title="${name}">${name}</div>
+                    <div class="mini-badge ${uLag?'bg-warn':'bg-ok'}">${uLag?'落后':'超前'}</div>
+                </div>
+                
+                <div class="mini-center-val" style="color:${uCol}">${proj}%</div>
+                <div class="mini-sub-label">实际: ${rate}%</div>
+
+                <div class="mini-footer-bar">
+                    <div class="mini-bar-bg">
+                        <div class="time-marker" style="left:${Math.min(timePct,100)}%"></div>
+                        <div class="${uBar}" style="width:${Math.min(rate,100)}%"></div>
+                    </div>
+                </div>
+
+                <div class="mini-popover">
+                    <div style="font-weight:bold;color:#fff;margin-bottom:6px;border-bottom:1px solid #444;padding-bottom:4px;">${name} 详情</div>
+                    <div class="pop-row"><span>目标:</span><span class="pop-val">${tVal}万</span></div>
+                    <div class="pop-row"><span>已完(净):</span><span class="pop-val">${net.toFixed(2)}万</span></div>
+                    <div class="pop-row"><span>7日日均:</span><span class="pop-val">${wAvg.toFixed(2)}万</span></div>
+                    <div class="pop-row"><span>后续所需:</span><span class="pop-val">${req.toFixed(2)}万/日</span></div>
+                    <div class="pop-row"><span>差额:</span><span class="${uGapCls}">${uGapTxt}</span></div>
+                </div>
+            </div>`;
+        });
+        
+        html += `</div>`;
+        container.innerHTML = html;
+    }
+
+    $('fileInp').onchange = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const wb = XLSX.read(evt.target.result, {type:'array'});
+                rawData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:0});
+                startS1();
+            } catch (err) { alert("❌ 读取文件失败: " + err.message); $('page-loader').style.display='none'; }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    function startS1() {
+        const keys = Object.keys(rawData[0]);
+        allDateCols = keys.filter(k => k.match(/202[0-9]/) || k.includes('日期')).sort();
+        if(allDateCols.length===0) { alert("❌ 日期列未找到"); return; }
+        colMap.group = keys.find(k => k.includes('集团') || k.includes('维护')) || '代理商集团自维护';
+        colMap.unit = keys.find(k => k.includes('运营') && !k.includes('中心')) || '运营单位';
+        colMap.fw = keys.find(k => k.includes('框架')) || '是否框架';
+        colMap.ind = keys.find(k => k.includes('一级') || k.includes('行业')) || '客户一级行业';
+        colMap.ind2 = keys.find(k => k.includes('二级')) || '客户二级行业'; 
+        colMap.name = keys.find(k => k.includes('名称') || k.includes('客户名')) || '客户名称';
+        if(!colMap.unit || !colMap.fw) { alert("❌ 缺少核心列"); return; }
+
+        cleanData = rawData.filter(r => {
+            const gVal = r[colMap.group];
+            const hasGroup = gVal && String(gVal).trim()!=='' && gVal!==0 && gVal!=='0';
+            const uVal = r[colMap.unit];
+            const uStr = String(uVal || "").trim();
+            const isTotalRow = ['合计', '总计', '平均', 'Total', 'Average', '汇总'].some(kw => uStr.includes(kw));
+            return !hasGroup && uVal && uStr!=='' && !isTotalRow;
+        });
+
+        if(cleanData.length===0) { alert("❌ 无有效数据"); return; }
+        const maxDate = allDateCols[allDateCols.length-1];
+        const picker = $('datePicker');
+        picker.max = maxDate; picker.value = maxDate;
+        initCustomFilters();
+        updateByDate();
+    }
+
+    function updateByDate() {
+        const limit = $('datePicker').value;
+        if(!limit) return;
+        $('page-loader').style.display = 'flex';
+        setTimeout(() => {
+            dateCols = allDateCols.filter(d => d <= limit);
+            if(dateCols.length === 0) { alert("日期前无数据"); $('page-loader').style.display = 'none'; return; }
+            $('date-info').innerText = `截止: ${dateCols[dateCols.length-1]} | 数据: ${cleanData.length}条`;
+            $('global-section').style.display='block';
+            $('movers-section').style.display='block';
+            renderGlobalKPI('ALL'); 
+            renderDashboard(); 
+            renderUnitTable(); 
+            initDropdowns(); renderTop3Growth('ALL'); 
+            renderIndustryChart('ALL'); renderTop10Charts('ALL'); renderTrendChart('ALL');
+            if(!$('d-end-a').value) {
+                $('d-end-a').value = dateCols[dateCols.length-1];
+                let d7 = new Date(dateCols[dateCols.length-1]); d7.setDate(d7.getDate()-6);
+                $('d-start-a').value = d7.toISOString().split('T')[0];
+                let dPrevEnd = new Date(d7); dPrevEnd.setDate(d7.getDate()-1);
+                let dPrevStart = new Date(dPrevEnd); dPrevStart.setDate(dPrevEnd.getDate()-6);
+                $('d-end-b').value = dPrevEnd.toISOString().split('T')[0];
+                $('d-start-b').value = dPrevStart.toISOString().split('T')[0];
+            }
+            $('page-loader').style.display = 'none';
+        }, 50);
+    }
+
+    function initDropdowns() {
+        const units = [...new Set(cleanData.map(r=>r[colMap.unit]))].sort();
+        const selMovers = $('moversSelect'); selMovers.innerHTML = '<option value="ALL">🔵 全局汇总</option>';
+        const selDetail = $('unitSelect'); selDetail.innerHTML = '<option value="ALL">🔵 全局汇总</option>';
+        const selGlobal = $('globalUnitSelect'); selGlobal.innerHTML = '<option value="ALL">🔵 全局汇总</option>';
+        const selTop10 = $('top10UnitSelect'); selTop10.innerHTML = '<option value="ALL">🔵 全局汇总</option>';
+        const selTrend = $('trendUnitSelect'); selTrend.innerHTML = '<option value="ALL">🔵 全局汇总</option>';
+        units.forEach(u=>{ 
+            const opt = `<option value="${u}">${u}</option>`;
+            selMovers.innerHTML+=opt; selDetail.innerHTML+=opt; selGlobal.innerHTML+=opt; selTop10.innerHTML+=opt; selTrend.innerHTML+=opt;
+        });
+        selMovers.onchange = () => renderTop3Growth(selMovers.value);
+    }
+
+    function calcStats(rows) {
+        const last = new Date(dateCols[dateCols.length-1]);
+        const dC = dateCols[dateCols.length-1]; const dP = dateCols[dateCols.length-2];
+        const wS = new Date(last); wS.setDate(last.getDate()-6);
+        const wE = last; const wPS = new Date(last); wPS.setDate(last.getDate()-13); const wPE = new Date(last); wPE.setDate(last.getDate()-7);
+        const mS = new Date(last.getFullYear(),last.getMonth(),1);
+        const mPS = new Date(last.getFullYear(),last.getMonth()-1,1);
+        const tD = Math.min(last.getDate(), new Date(last.getFullYear(),last.getMonth(),0).getDate());
+        const mPE = new Date(last.getFullYear(),last.getMonth()-1,tD);
+        const qIdx = Math.floor(last.getMonth()/3);
+        const qS = new Date(last.getFullYear(),qIdx*3,1);
+        const qPS = new Date(last.getFullYear(),(qIdx-1)*3,1);
+        const dIQ = Math.floor((last-qS)/864e5);
+        const qPE = new Date(qPS); qPE.setDate(qPS.getDate()+dIQ);
+        const sum = (s,e) => { let t=0; const cs=dateCols.filter(d=>{const x=new Date(d); return x>=s && x<=e;}); rows.forEach(r=>cs.forEach(c=>t+=parseFloat(r[c])||0)); return t; };
+        return {
+            d: { c: sum(new Date(dC),new Date(dC)), p: sum(new Date(dP),new Date(dP)) },
+            w: { c: sum(wS,wE), p: sum(wPS,wPE) },
+            m: { c: sum(mS,last), p: sum(mPS,mPE) },
+            q: { c: sum(qS,last), p: sum(qPS,qPE) }
+        };
+    }
+
+    function renderGlobalKPI(uName = 'ALL') {
+        const targetRows = uName === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.unit] === uName);
+        const m = calcStats(targetRows);
+        const mk = (t,c,p) => { const d=c-p; return `<div class="card-global"><div class="kpi-title">${t}</div><div class="kpi-val">${fmtWan(c)}</div><div class="kpi-sub"><span>环比: ${fmtPct(c,p)}</span><span class="diff-tag ${d>=0?'up':'down'}">差: ${fmtDiffWan(d)}</span></div></div>`; };
+        $('kpi-global').innerHTML = mk('当天营收',m.d.c,m.d.p) + mk('本周营收',m.w.c,m.w.p) + mk('本月营收',m.m.c,m.m.p) + mk('本季营收',m.q.c,m.q.p);
+    }
+
+    function renderUnitTable() {
+        tableRowsData = [];
+        const units = [...new Set(cleanData.map(r=>r[colMap.unit]))].sort();
+        const last = new Date(dateCols[dateCols.length-1]);
+        const qIdx = Math.floor(last.getMonth()/3);
+        const qStart = new Date(last.getFullYear(), qIdx*3, 1);
+        const daysInQ = Math.floor((last - qStart)/864e5) + 1;
+
+        units.forEach(u => {
+            const rows = cleanData.filter(r => r[colMap.unit]===u);
+            const fwRows = rows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架'));
+            const nfwRows = rows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+            const s = calcStats(rows);
+            const sFw = calcStats(fwRows);
+            const sNfw = calcStats(nfwRows);
+            
+            tableRowsData.push({
+                name: u,
+                dTotal: s.d.c, dPrev: s.d.p, 
+                dFw: sFw.d.c, dFwPrev: sFw.d.p,
+                dNfw: sNfw.d.c, dNfwPrev: sNfw.d.p,
+                wTotal: s.w.c/7, wPrev: s.w.p/7, 
+                wFw: sFw.w.c/7, wFwPrev: sFw.w.p/7,
+                wNfw: sNfw.w.c/7, wNfwPrev: sNfw.w.p/7,
+                qTotal: s.q.c/daysInQ, qPrev: s.q.p/daysInQ, 
+                qFw: sFw.q.c/daysInQ, qFwPrev: sFw.q.p/daysInQ,
+                qNfw: sNfw.q.c/daysInQ, qNfwPrev: sNfw.q.p/daysInQ,
+                fwRatio: s.q.c ? (sFw.q.c/s.q.c*100) : 0,
+                nfwRatio: s.q.c ? (sNfw.q.c/s.q.c*100) : 0,
+                raw: { s, sFw, sNfw, daysInQ }
+            });
+        });
+        drawTableBody();
+    }
+
+    function sortTable(key) {
+        if(currentSort.key === key) { currentSort.order = currentSort.order === 'desc' ? 'asc' : 'desc'; } else { currentSort.key = key; currentSort.order = 'desc'; }
+        drawTableBody();
+    }
+
+    function drawTableBody() {
+        tableRowsData.sort((a,b) => {
+            let valA = a[currentSort.key]; let valB = b[currentSort.key];
+            if(typeof valA === 'string') return currentSort.order==='asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            return currentSort.order==='asc' ? valA - valB : valB - valA;
+        });
+        document.querySelectorAll('.sort-icon').forEach(el => el.innerHTML = '');
+        document.querySelectorAll('.th-sortable').forEach(el => el.classList.remove('active-sort'));
+        const iconId = 'sort-icon-' + currentSort.key;
+        if($(iconId)) { $(iconId).innerHTML = currentSort.order === 'asc' ? '↑' : '↓'; $(iconId).parentElement.classList.add('active-sort'); }
+
+        const tb = $('unit-body'); tb.innerHTML='';
+        let sumD=0, sumDPrev=0, sumDFw=0, sumDFwPrev=0, sumDNfw=0, sumDNfwPrev=0;
+        let sumW=0, sumWPrev=0, sumWFw=0, sumWFwPrev=0, sumWNfw=0, sumWNfwPrev=0;
+        let sumQ=0, sumQPrev=0, sumQFw=0, sumQFwPrev=0, sumQNfw=0, sumQNfwPrev=0;
+
+        tableRowsData.forEach(row => {
+            sumD += row.dTotal; sumDPrev += row.dPrev; sumDFw += row.dFw; sumDFwPrev += row.dFwPrev; sumDNfw += row.dNfw; sumDNfwPrev += row.dNfwPrev;
+            sumW += row.wTotal; sumWPrev += row.wPrev; sumWFw += row.wFw; sumWFwPrev += row.wFwPrev; sumWNfw += row.wNfw; sumWNfwPrev += row.wNfwPrev;
+            sumQ += row.qTotal; sumQPrev += row.qPrev; sumQFw += row.qFw; sumQFwPrev += row.qFwPrev; sumQNfw += row.qNfw; sumQNfwPrev += row.qNfwPrev;
+
+            const dRowHtml = `<tr>
+                <td class="td-name">${row.name}</td>
+                <td class="num">${fmtWan(row.dTotal)} ${fmtPct(row.dTotal, row.dPrev)}</td>
+                <td style="color:var(--gold)">${fmtWan(row.dFw)} ${fmtPct(row.dFw, row.dFwPrev)}</td>
+                <td style="color:var(--cyan)" class="group-sep">${fmtWan(row.dNfw)} ${fmtPct(row.dNfw, row.dNfwPrev)}</td>
+                <td>${fmtWan(row.wTotal)} ${fmtPct(row.wTotal, row.wPrev)}</td>
+                <td style="color:var(--gold)">${fmtWan(row.wFw)} ${fmtPct(row.wFw, row.wFwPrev)}</td>
+                <td style="color:var(--cyan)" class="group-sep">${fmtWan(row.wNfw)} ${fmtPct(row.wNfw, row.wNfwPrev)}</td>
+                <td>${fmtWan(row.qTotal)} ${fmtPct(row.qTotal, row.qPrev)}</td>
+                <td style="color:var(--gold)">${fmtWan(row.qFw)} ${fmtPct(row.qFw, row.qFwPrev)}</td>
+                <td style="color:var(--cyan)" class="group-sep">${fmtWan(row.qNfw)} ${fmtPct(row.qNfw, row.qNfwPrev)}</td>
+                <td style="color:var(--gold);font-weight:bold;">${row.fwRatio.toFixed(1)}%</td>
+                <td style="color:var(--cyan);font-weight:bold;">${row.nfwRatio.toFixed(1)}%</td>
+            </tr>`;
+            tb.innerHTML += dRowHtml;
+        });
+
+        const fwRatioAll = sumQ ? (sumQFw/sumQ*100) : 0;
+        const nfwRatioAll = sumQ ? (sumQNfw/sumQ*100) : 0;
+        
+        const totalRowHtml = `<tr class="total-row">
+            <td class="td-name">📊 大区总计</td>
+            <td class="num">${fmtWan(sumD)} ${fmtPct(sumD, sumDPrev)}</td>
+            <td style="color:var(--gold)">${fmtWan(sumDFw)} ${fmtPct(sumDFw, sumDFwPrev)}</td>
+            <td style="color:var(--cyan)" class="group-sep">${fmtWan(sumDNfw)} ${fmtPct(sumDNfw, sumDNfwPrev)}</td>
+            <td class="num">${fmtWan(sumW)} ${fmtPct(sumW, sumWPrev)}</td>
+            <td style="color:var(--gold)">${fmtWan(sumWFw)} ${fmtPct(sumWFw, sumWFwPrev)}</td>
+            <td style="color:var(--cyan)" class="group-sep">${fmtWan(sumWNfw)} ${fmtPct(sumWNfw, sumWNfwPrev)}</td>
+            <td class="num">${fmtWan(sumQ)} ${fmtPct(sumQ, sumQPrev)}</td>
+            <td style="color:var(--gold)">${fmtWan(sumQFw)} ${fmtPct(sumQFw, sumQFwPrev)}</td>
+            <td style="color:var(--cyan)" class="group-sep">${fmtWan(sumQNfw)} ${fmtPct(sumQNfw, sumQNfwPrev)}</td>
+            <td style="color:var(--gold);font-weight:bold;">${fwRatioAll.toFixed(1)}%</td>
+            <td style="color:var(--cyan);font-weight:bold;">${nfwRatioAll.toFixed(1)}%</td>
+        </tr>`;
+        tb.innerHTML += totalRowHtml;
+    }
+
+    function renderTop3Growth(uName) {
+        const targetRows = uName === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.unit] === uName);
+        const last = new Date(dateCols[dateCols.length-1]);
+        const getSum = (rows, start, end) => { let t=0; const cs = dateCols.filter(d => {const x=new Date(d); return x>=start && x<=end;}); rows.forEach(r => cs.forEach(c => t += parseFloat(r[c])||0)); return t; };
+
+        let currStart, currEnd, prevStart, prevEnd;
+        if(currentTrendMode === 'day') {
+            currEnd = last; currStart = last;
+            prevEnd = new Date(last); prevEnd.setDate(last.getDate()-1); prevStart = prevEnd;
+        } else if (currentTrendMode === 'week') {
+            currEnd = last; currStart = new Date(last); currStart.setDate(last.getDate()-6);
+            prevEnd = new Date(currStart); prevEnd.setDate(currStart.getDate()-1);
+            prevStart = new Date(prevEnd); prevStart.setDate(prevEnd.getDate()-6);
+        } else if (currentTrendMode === 'quarter') {
+            const qIdx = Math.floor(last.getMonth()/3);
+            const qStart = new Date(last.getFullYear(), qIdx*3, 1);
+            const daysPassed = Math.floor((last - qStart)/864e5) + 1;
+            currStart = qStart; currEnd = last;
+            prevStart = new Date(qStart); prevStart.setMonth(qStart.getMonth()-3);
+            prevEnd = new Date(prevStart); prevEnd.setDate(prevStart.getDate() + daysPassed - 1);
+        }
+
+        let indStats = {};
+        const allInds = [...new Set(targetRows.map(r => r['客户一级行业']||'未知行业'))];
+        allInds.forEach(ind => {
+            const rows = targetRows.filter(r => (r['客户一级行业']||'未知行业') === ind);
+            const fwRows = rows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架'));
+            const nfwRows = rows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+            
+            const fwCurr = getSum(fwRows, currStart, currEnd); const fwPrev = getSum(fwRows, prevStart, prevEnd);
+            const nfwCurr = getSum(nfwRows, currStart, currEnd); const nfwPrev = getSum(nfwRows, prevStart, prevEnd);
+            const tCurr = fwCurr + nfwCurr; const tPrev = fwPrev + nfwPrev;
+
+            indStats[ind] = {
+                tCurr, tPrev, fwCurr, nfwCurr,
+                fwPct: fwPrev ? ((fwCurr-fwPrev)/fwPrev*100).toFixed(1)+'%' : '-',
+                nfwPct: nfwPrev ? ((nfwCurr-nfwPrev)/nfwPrev*100).toFixed(1)+'%' : '-',
+                tPct: tPrev ? ((tCurr-tPrev)/tPrev*100).toFixed(1)+'%' : '-',
+                fwRatio: tCurr ? (fwCurr/tCurr*100).toFixed(1) : 0,
+                nfwRatio: tCurr ? (nfwCurr/tCurr*100).toFixed(1) : 0,
+                fwRows, nfwRows, fwDiff: fwCurr - fwPrev, nfwDiff: nfwCurr - nfwPrev
+            };
+        });
+
+        const getTop5 = (type) => {
+            const list = allInds.map(i => {
+                const rows = targetRows.filter(r => (r[colMap.ind]||'未知行业') === i);
+                const subRows = type==='fw' ? rows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架')) : rows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+                const c = getSum(subRows, currStart, currEnd);
+                const p = getSum(subRows, prevStart, prevEnd);
+                return { name: i, val: c - p };
+            });
+            list.sort((a,b) => b.val - a.val);
+            return [...list.slice(0, 5).filter(x => x.val > 0), ...list.slice(-5).reverse().filter(x => x.val < 0)];
+        };
+
+        const drawChart = (domId, data, type) => {
+            const chart = echarts.init($(domId));
+            chart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: {type:'shadow'}, backgroundColor: 'rgba(20,25,30,0.95)', borderColor: '#555', formatter: (p) => {
+                    const i = p[0].name; const s = indStats[i]; const v = p[0].value;
+                    const c1 = parseFloat(s.fwPct)>=0?'#ff7b72':'#3fb950'; const c2 = parseFloat(s.nfwPct)>=0?'#ff7b72':'#3fb950'; const c3 = parseFloat(s.tPct)>=0?'#ff7b72':'#3fb950';
+                    return `<div class="tt-container"><div class="tt-header">${i}</div>
+                    <div class="tt-row"><span class="tt-label">本期变动:</span> <span class="tt-val" style="color:${v>=0?'#ff7b72':'#3fb950'}">${fmtWan(v)}</span></div><div class="tt-sep"></div>
+                    <div class="tt-sub-header">环比趋势 (${currentTrendMode})</div>
+                    <div class="tt-row"><span>总盘:</span> <span class="tt-val" style="color:${c3}">${s.tPct}</span></div>
+                    <div class="tt-row"><span>框架:</span> <span class="tt-val" style="color:${c1}">${s.fwPct}</span></div>
+                    <div class="tt-row"><span>企业:</span> <span class="tt-val" style="color:${c2}">${s.nfwPct}</span></div>
+                    <div class="tt-sep"></div>
+                    <div class="tt-sub-header">本期结构</div>
+                    <div class="tt-row"><span style="color:#ffd700">● 框架:</span> ${fmtWan(s.fwCurr)} (${s.fwRatio}%)</div>
+                    <div class="tt-row"><span style="color:#00f2ff">● 企业:</span> ${fmtWan(s.nfwCurr)} (${s.nfwRatio}%)</div></div>`;
+                }},
+                grid: {left:'3%', right:'8%', top:'5%', bottom:'5%', containLabel:true},
+                xAxis: {type:'value', axisLabel:{show:false}, splitLine:{show:false}}, 
+                yAxis: {type:'category', data:data.map(i=>i.name).reverse(), axisLabel:{color:'#fff', width:90, overflow:'truncate'}},
+                series: [{ 
+                    type: 'bar', data: data.map(i => ({value: Math.floor(i.val)})).reverse(),
+                    itemStyle: { color: function(p){ return p.value >= 0 ? '#ff7b72' : '#3fb950'; }, borderRadius:[0,4,4,0] },
+                    label: { show:true, position: function(p) { return p.value >= 0 ? 'right' : 'left'; }, color:'#fff', formatter: (p) => { const s = indStats[p.name]; return (domId === 'chart-movers-fw') ? s.fwPct : s.nfwPct; } } 
+                }]
+            });
+            chart.off('click');
+            chart.on('click', function(params) {
+                const indName = params.name; const stats = indStats[indName];
+                showIndDetail(indName, type==='fw' ? stats.fwRows : stats.nfwRows, type==='fw' ? stats.fwDiff : stats.nfwDiff, type, currStart, currEnd, prevStart, prevEnd);
+            });
+        };
+        drawChart('chart-movers-fw', getTop5('fw'), 'fw');
+        drawChart('chart-movers-nfw', getTop5('nfw'), 'nfw');
+    }
+
+    function showIndDetail(indName, rows, totalDiff, type, cS, cE, pS, pE) {
+        if(!rows || rows.length === 0) return;
+        const last = new Date(dateCols[dateCols.length-1]);
+        const wS = new Date(last); wS.setDate(last.getDate()-6);
+        const wPS = new Date(last); wPS.setDate(last.getDate()-13); const wPE = new Date(last); wPE.setDate(last.getDate()-7);
+        const qIdx = Math.floor(last.getMonth()/3);
+        const qS = new Date(last.getFullYear(), qIdx*3, 1);
+        const qPS = new Date(last.getFullYear(), (qIdx-1)*3, 1);
+        const dIQ = Math.floor((last-qS)/864e5);
+        const qPE = new Date(qPS); qPE.setDate(qPS.getDate()+dIQ);
+        const getSum = (r, s, e) => { let t=0; dateCols.filter(d=>{const x=new Date(d); return x>=s && x<=e;}).forEach(c=>t+=parseFloat(r[c])||0); return t; };
+
+        let clientDiffs = rows.map(r => {
+            const curr = getSum(r, cS, cE); const prev = getSum(r, pS, pE); const diff = curr - prev;
+            const wCurr = getSum(r, wS, last); const wPrev = getSum(r, wPS, wPE); const wPctVal = wPrev ? ((wCurr-wPrev)/wPrev*100) : 0;
+            const qCurr = getSum(r, qS, last); const qPrev = getSum(r, qPS, qPE); const qPctVal = qPrev ? ((qCurr-qPrev)/qPrev*100) : 0;
+            return {
+                unit: r[colMap.unit], name: r[colMap.name] || '未知客户', diff: diff, diffAbs: Math.abs(diff),
+                wPct: wPctVal, qPct: qPctVal, wPctStr: wPrev ? wPctVal.toFixed(1)+'%' : '-', qPctStr: qPrev ? qPctVal.toFixed(1)+'%' : '-'
+            };
+        });
+
+        clientDiffs.sort((a, b) => b.diffAbs - a.diffAbs);
+        detailData = clientDiffs.slice(0, 10); detailTotal = totalDiff; detailSortKey = 'diff'; detailSortOrder = 'desc';
+        $('detail-title').innerText = `${indName} - ${type==='fw'?'框架':'企业'}Top10变动客户`;
+        $('detail-sub').innerText = `本期总变动: ${fmtDiffWan(totalDiff)}`;
+        $('ind-detail-modal').style.display = 'flex';
+        renderDetailTable();
+    }
+
+    function sortDetail(key) {
+        if(detailSortKey === key) { detailSortOrder = (detailSortOrder === 'desc') ? 'asc' : 'desc'; } else { detailSortKey = key; detailSortOrder = 'desc'; }
+        renderDetailTable();
+    }
+
+    function renderDetailTable() {
+        detailData.sort((a,b) => {
+            let valA = a[detailSortKey]; let valB = b[detailSortKey];
+            if(detailSortKey === 'diff') { valA = a.diff; valB = b.diff; }
+            return detailSortOrder === 'asc' ? valA - valB : valB - valA;
+        });
+        ['diff', 'ratio', 'wPct', 'qPct'].forEach(k => { const el = $('icon-d-'+k); if(el) el.innerHTML = ''; });
+        const activeIcon = $('icon-d-'+ (detailSortKey==='diff'?'diff':detailSortKey)); 
+        if(activeIcon) activeIcon.innerHTML = detailSortOrder === 'asc' ? '▲' : '▼';
+
+        const tbody = $('detail-body'); tbody.innerHTML = '';
+        detailData.forEach(c => {
+            const ratio = detailTotal ? (c.diff / detailTotal * 100).toFixed(1) : 0;
+            const tr = `<tr><td>${c.unit}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${c.name}</td><td style="font-family:monospace; font-weight:bold; color:${c.diff>=0?'var(--red)':'var(--green)'}">${fmtDiffWan(c.diff)}</td><td style="font-weight:bold;">${ratio}%</td><td class="${c.wPct>=0?'up':'down'}">${c.wPctStr}</td><td class="${c.qPct>=0?'up':'down'}">${c.qPctStr}</td></tr>`;
+            tbody.innerHTML += tr;
+        });
+    }
+
+    function copyDetailText() {
+        if(!detailData) return;
+        let clipTxt = "运营单位\t公司名称\t变动额\t影响占比\t7日环比\t季度环比\n";
+        document.querySelectorAll('#detail-body tr').forEach(r => {
+            let rowTxt = []; r.querySelectorAll('td').forEach(c => rowTxt.push(c.innerText));
+            clipTxt += rowTxt.join('\t') + '\n';
+        });
+        const ta = document.createElement('textarea'); ta.value = clipTxt;
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert("已复制到剪贴板");
+    }
+
+    function renderIndustryChart(uName) {
+        const targetRows = uName === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.unit] === uName);
+        const fwRows = targetRows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架'));
+        const nfwRows = targetRows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+        renderIndustrySplit(fwRows, nfwRows);
+    }
+
+    function renderTop10Charts(uName) {
+        const targetRows = uName === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.unit] === uName);
+        const fwRows = targetRows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架'));
+        const nfwRows = targetRows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+        renderTop10(fwRows, 'chart-top-fw', '#ffd700'); renderTop10(nfwRows, 'chart-top-nfw', '#00f2ff'); 
+    }
+
+    function renderTrendChart(uName) {
+        const targetRows = uName === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.unit] === uName);
+        const fwRows = targetRows.filter(r => String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架'));
+        const nfwRows = targetRows.filter(r => !String(r[colMap.fw]).includes('是') && !String(r[colMap.fw]).includes('框架'));
+        renderTrendSplit(fwRows, nfwRows);
+    }
+
+    function renderIndustrySplit(fwRows, nfwRows) {
+        const last = new Date(dateCols[dateCols.length-1]);
+        const dC = dateCols[dateCols.length-1]; const dP = dateCols[dateCols.length-2];
+        const wS = new Date(last); wS.setDate(last.getDate()-6);
+        const wPS = new Date(last); wPS.setDate(last.getDate()-13); const wPE = new Date(last); wPE.setDate(last.getDate()-7);
+        const qIdx = Math.floor(last.getMonth()/3);
+        const qS = new Date(last.getFullYear(), qIdx*3, 1);
+        const daysInQ = Math.floor((last - qS)/864e5) + 1;
+        const getSum = (rows, start, end) => { let t=0; const cs = dateCols.filter(d => {const x=new Date(d); return x>=start && x<=end;}); rows.forEach(r => cs.forEach(c => t += parseFloat(r[c])||0)); return t; };
+
+        const allInds = [...new Set([...fwRows, ...nfwRows].map(r => r['客户一级行业']||'未知行业'))];
+        let stats = {};
+        allInds.forEach(ind => {
+            const iFw = fwRows.filter(r => (r['客户一级行业']||'未知行业') === ind);
+            const iNfw = nfwRows.filter(r => (r['客户一级行业']||'未知行业') === ind);
+            const fwQ = getSum(iFw, qS, last); const nfwQ = getSum(iNfw, qS, last);
+            const fwD = getSum(iFw, new Date(dC), new Date(dC)); const fwDP = getSum(iFw, new Date(dP), new Date(dP));
+            const nfwD = getSum(iNfw, new Date(dC), new Date(dC)); const nfwDP = getSum(iNfw, new Date(dP), new Date(dP));
+            const fwW = getSum(iFw, wS, last); const nfwW = getSum(iNfw, wS, last);
+            const tD = fwD + nfwD; const tDP = fwDP + nfwDP;
+            const tW = fwW + nfwW; const tWP = getSum(iFw, wPS, wPE) + getSum(iNfw, wPS, wPE);
+            stats[ind] = { fwQ, nfwQ, fwD, fwDP, fwW, fwQAvg: fwQ/daysInQ, nfwD, nfwDP, nfwW, nfwQAvg: nfwQ/daysInQ, tD, tDP, tW, tWP };
+        });
+
+        const sortedInds = Object.keys(stats).sort((a,b) => (stats[b].fwQ+stats[b].nfwQ) - (stats[a].fwQ+stats[a].nfwQ)).slice(0, 15);
+        const chart = echarts.init($('chart-ind-split'));
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: {type: 'shadow'}, backgroundColor: 'rgba(20,25,30,0.95)', borderColor: '#555', textStyle: { color: '#eee' }, formatter: function(params) {
+                const ind = params[0].name; const s = stats[ind]; const tQ = s.fwQ + s.nfwQ;
+                const pct = (c, p) => p ? ((c-p)/p*100).toFixed(1)+'%' : '-';
+                const dPct = pct(s.tD, s.tDP); const wPct = pct(s.tW, s.tWP);
+                const dCls = s.tD >= s.tDP ? 'tt-pct-up' : 'tt-pct-down'; const wCls = s.tW >= s.tWP ? 'tt-pct-up' : 'tt-pct-down';
+                return `<div class="tt-container"><div class="tt-header">${ind} (总: ${fmtWan(tQ)})<div class="tt-sub-text">日环: <span class="${dCls}">${dPct}</span> | 周环: <span class="${wCls}">${wPct}</span></div></div><div class="tt-section"><span class="tt-sec-title" style="color:#ffd700">👑 框架消费: ${fmtWan(s.fwQ)} (${tQ?(s.fwQ/tQ*100).toFixed(1):0}%)</span><div class="tt-row"><span>昨日:</span> <span class="tt-val">${fmtWan(s.fwD)} (${pct(s.fwD, s.fwDP)})</span></div><div class="tt-row"><span>7日均:</span> <span class="tt-val">${fmtWan(s.fwW/7)}</span></div><div class="tt-row"><span>季日均:</span> <span class="tt-val">${fmtWan(s.fwQAvg)}</span></div></div><div class="tt-section"><span class="tt-sec-title" style="color:#00f2ff">🏢 企业消费: ${fmtWan(s.nfwQ)} (${tQ?(s.nfwQ/tQ*100).toFixed(1):0}%)</span><div class="tt-row"><span>昨日:</span> <span class="tt-val">${fmtWan(s.nfwD)} (${pct(s.nfwD, s.nfwDP)})</span></div><div class="tt-row"><span>7日均:</span> <span class="tt-val">${fmtWan(s.nfwW/7)}</span></div><div class="tt-row"><span>季日均:</span> <span class="tt-val">${fmtWan(s.nfwQAvg)}</span></div></div></div>`;
+            }},
+            legend: { textStyle:{color:'#ccc'}, bottom:0, data:['框架', '企业'] }, grid: { left:'3%', right:'4%', bottom:'10%', containLabel:true },
+            xAxis: { type: 'category', data: sortedInds, axisLabel:{color:'#888', rotate:30, interval:0} }, yAxis: { type: 'value', splitLine:{lineStyle:{color:'#333'}}, axisLabel:{color:'#888'} },
+            series: [{ name: '框架', type: 'bar', stack: 'total', data: sortedInds.map(i=>Math.floor(stats[i].fwQ)), itemStyle:{color:'#ffd700'}, barWidth:'50%' }, { name: '企业', type: 'bar', stack: 'total', data: sortedInds.map(i=>Math.floor(stats[i].nfwQ)), itemStyle:{color:'#00f2ff'}, barWidth:'50%' }]
+        });
+    }
+
+    function renderTop10(rows, id, color) {
+        const last = new Date(dateCols[dateCols.length-1]);
+        const dC = dateCols[dateCols.length-1]; const dP = dateCols[dateCols.length-2];
+        const wS = new Date(last); wS.setDate(last.getDate()-6);
+        const wPS = new Date(last); wPS.setDate(last.getDate()-13); const wPE = new Date(last); wPE.setDate(last.getDate()-7);
+        const qIdx = Math.floor(last.getMonth()/3);
+        const qS = new Date(last.getFullYear(), qIdx*3, 1);
+        const qPS = new Date(last.getFullYear(), (qIdx-1)*3, 1);
+        const daysPassed = Math.floor((last - qS)/864e5) + 1;
+        const qPE = new Date(qPS); qPE.setDate(qPS.getDate() + daysPassed - 1);
+
+        const getSum = (rs, s, e) => { let t=0; const cs=dateCols.filter(d=>{const x=new Date(d); return x>=s && x<=e;}); rs.forEach(r=>cs.forEach(c=>t+=parseFloat(r[c])||0)); return t; };
+
+        let clientStats = {};
+        rows.forEach(r => {
+            const name = r[colMap.name] || '未知客户';
+            if(!clientStats[name]) {
+                clientStats[name] = { name, ind1: r[colMap.ind]||'-', ind2: r[colMap.ind2]||'-', qSum: 0, qPrev: 0, dSum: 0, dPrev: 0, wSum: 0, wPrev: 0 };
+            }
+            const cs = clientStats[name];
+            cs.qSum += getSum([r], qS, last); cs.qPrev += getSum([r], qPS, qPE);
+            cs.dSum += getSum([r], new Date(dC), new Date(dC)); cs.dPrev += getSum([r], new Date(dP), new Date(dP));
+            cs.wSum += getSum([r], wS, last); cs.wPrev += getSum([r], wPS, wPE);
+        });
+
+        const list = Object.values(clientStats).sort((a,b) => b.qSum - a.qSum).slice(0, 10);
+
+        const chart = echarts.init($(id));
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: {type:'shadow'}, backgroundColor: 'rgba(20,25,30,0.95)', borderColor: '#555', formatter: (p) => {
+                const item = list.find(x => x.name === p[0].name);
+                const pct = (c, p) => p ? ((c-p)/p*100).toFixed(1)+'%' : '-';
+                const cQ = parseFloat(pct(item.qSum, item.qPrev))>=0 ? '#ff7b72' : '#3fb950';
+                const cW = parseFloat(pct(item.wSum, item.wPrev))>=0 ? '#ff7b72' : '#3fb950';
+                const cD = parseFloat(pct(item.dSum, item.dPrev))>=0 ? '#ff7b72' : '#3fb950';
+                return `<div class="tt-container" style="min-width:320px;"><div class="tt-header">${item.name}</div><div style="font-size:11px;color:#888;margin-bottom:8px;">${item.ind1} / ${item.ind2}</div><div class="tt-section"><span class="tt-sec-title">📅 昨日表现</span><div class="tt-row"><span>消费:</span> <span class="tt-val">${fmtWan(item.dSum)}</span></div><div class="tt-row"><span>环比:</span> <span class="tt-val" style="color:${cD}">${pct(item.dSum, item.dPrev)}</span></div></div><div class="tt-section"><span class="tt-sec-title">🗓️ 7日趋势</span><div class="tt-row"><span>日均:</span> <span class="tt-val">${fmtWan(item.wSum/7)}</span></div><div class="tt-row"><span>环比:</span> <span class="tt-val" style="color:${cW}">${pct(item.wSum, item.wPrev)}</span></div></div><div class="tt-section"><span class="tt-sec-title">📊 季度累计</span><div class="tt-row"><span>日均:</span> <span class="tt-val">${fmtWan(item.qSum/daysPassed)}</span></div><div class="tt-row"><span>对齐环比:</span> <span class="tt-val" style="color:${cQ}">${pct(item.qSum, item.qPrev)}</span></div></div></div>`;
+            }}, 
+            grid: { left:'3%', right:'8%', top:'5%', bottom:'3%', containLabel:true },
+            xAxis: { type: 'value', splitLine:{show:false}, axisLabel:{show:false} }, yAxis: { type: 'category', data: list.map(i=>i.name).reverse(), axisLabel:{color:'#fff', width:100, overflow:'truncate'} },
+            series: [{ type: 'bar', data: list.map(i=>Math.floor(i.qSum)).reverse(), itemStyle: { color: color, borderRadius:[0,4,4,0] }, label: { show:true, position:'right', color:color, formatter: p => fmtWan(p.value) } }]
+        });
+    }
+
+    function renderTrendSplit(fwRows, nfwRows) {
+        const days90 = dateCols.slice(-90);
+        const dFw = days90.map(d => { let s=0; fwRows.forEach(r=>s+=parseFloat(r[d])||0); return Math.floor(s); });
+        const dNfw = days90.map(d => { let s=0; nfwRows.forEach(r=>s+=parseFloat(r[d])||0); return Math.floor(s); });
+        const chart = echarts.init($('chart-trend-split'));
+        chart.setOption({
+            tooltip: { trigger: 'axis' }, legend: { textStyle:{color:'#ccc'}, top:0 }, grid: { left:'3%', right:'3%', bottom:'3%', containLabel:true },
+            xAxis: { type: 'category', data: days90, axisLabel:{color:'#888'} }, yAxis: { type: 'value', splitLine:{lineStyle:{color:'#333'}}, axisLabel:{color:'#888'} },
+            series: [{ name: '框架', type: 'line', smooth:true, showSymbol:false, data: dFw, itemStyle:{color:'#ffd700'}, areaStyle:{opacity:0.1} }, { name: '企业', type: 'line', smooth:true, showSymbol:false, data: dNfw, itemStyle:{color:'#00f2ff'}, areaStyle:{opacity:0.1} }]
+        });
+    }
+
+    // --- Custom Analysis ---
+    function initCustomFilters() {
+        const populate = (id, key) => {
+            const list = [...new Set(cleanData.map(r=>r[key]))].sort();
+            const el = $(id);
+            el.innerHTML = '<option value="ALL">(全部)</option>';
+            list.forEach(v => { if(v && String(v).trim()!=='') el.innerHTML += `<option value="${v}">${v}</option>`; });
+        };
+
+        populate('f-unit', colMap.unit);
+        // populate('f-fw', colMap.fw); 
+        populate('f-ind1', colMap.ind);
+
+        const clList = [...new Set(cleanData.map(r=>r[colMap.name]))].sort();
+        $('dl-client').innerHTML = clList.map(c=>`<option value="${c}">`).join('');
+
+        const updateInd2 = () => {
+            const ind1Val = $('f-ind1').value;
+            const el2 = $('f-ind2');
+            const currentInd2 = el2.value; 
+            el2.innerHTML = '<option value="ALL">(全部)</option>';
+            const relevantRows = ind1Val === 'ALL' ? cleanData : cleanData.filter(r => r[colMap.ind] === ind1Val);
+            const list2 = [...new Set(relevantRows.map(r => r[colMap.ind2]))].filter(v => v && String(v).trim() !== '').sort();
+            list2.forEach(v => el2.innerHTML += `<option value="${v}">${v}</option>`);
+            if(list2.includes(currentInd2)) el2.value = currentInd2; else el2.value = 'ALL';
+        };
+        updateInd2();
+        $('f-ind1').onchange = updateInd2;
+    }
+
+    function calcCustomStats() {
+        const fUnit = $('f-unit').value;
+        const fClient = $('f-client').value.trim();
+        const fFw = $('f-fw').value;
+        const fInd1 = $('f-ind1').value;
+        const fInd2 = $('f-ind2').value;
+        
+        const sA = $('d-start-a').value; const eA = $('d-end-a').value;
+        const sB = $('d-start-b').value; const eB = $('d-end-b').value;
+        
+        if(!sA || !eA || !sB || !eB) { alert("请选择完整的对比日期"); return; }
+
+        const rows = cleanData.filter(r => {
+            if(fUnit !== 'ALL' && r[colMap.unit] !== fUnit) return false;
+            if(fClient !== '' && !r[colMap.name].includes(fClient)) return false;
+            const isFw = String(r[colMap.fw]).includes('是') || String(r[colMap.fw]).includes('框架');
+            if(fFw === '是' && !isFw) return false;
+            if(fFw === '否' && isFw) return false;
+            if(fInd1 !== 'ALL' && r[colMap.ind] !== fInd1) return false;
+            if(fInd2 !== 'ALL' && r[colMap.ind2] !== fInd2) return false;
+            return true;
+        });
+
+        const getSum = (s, e) => {
+            let t=0; let days=0;
+            const cs = dateCols.filter(d => { if(d >= s && d <= e) { days++; return true; } return false; });
+            rows.forEach(r => cs.forEach(c => t += parseFloat(r[c])||0));
+            return { val: t, days: days||1 };
+        };
+
+        const resA = getSum(sA, eA);
+        const resB = getSum(sB, eB);
+        
+        const diffVal = resA.val - resB.val;
+        const growth = resB.val ? (diffVal / resB.val * 100).toFixed(1) : 0;
+        
+        const avgA = resA.val / resA.days;
+        const avgB = resB.val / resB.days;
+        const diffAvg = avgA - avgB;
+
+        const box = $('custom-result');
+        const colorDiff = diffVal >= 0 ? '#ff7b72' : '#3fb950';
+        const colorAvg = diffAvg >= 0 ? '#ff7b72' : '#3fb950';
+
+        box.innerHTML = `
+            <div class="res-card"><div class="res-title">期间 A 总营收</div><div class="res-val" style="color:var(--blue)">${fmtWan(resA.val)}</div><div class="res-sub"><span>${sA} 至 ${eA}</span><span>${resA.days}天</span></div></div>
+            <div class="res-card"><div class="res-title">期间 B 总营收</div><div class="res-val" style="color:#8b949e">${fmtWan(resB.val)}</div><div class="res-sub"><span>${sB} 至 ${eB}</span><span>${resB.days}天</span></div></div>
+            <div class="res-card"><div class="res-title">对比差额 (A - B)</div><div class="res-val" style="color:${colorDiff}">${diffVal>0?'+':''}${fmtWan(diffVal)}</div><div class="res-sub"><span>环比增长</span><span style="color:${colorDiff}">${growth}%</span></div></div>
+            <div class="res-card"><div class="res-title">日均差额 (强度对比)</div><div class="res-val" style="color:${colorAvg}">${diffAvg>0?'+':''}${fmtWan(diffAvg)}</div><div class="res-sub"><span>日均A: ${fmtWan(avgA)}</span><span>日均B: ${fmtWan(avgB)}</span></div></div>
+        `;
+    }
+</script>
+</body>
+</html>
