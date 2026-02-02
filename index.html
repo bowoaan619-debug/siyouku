@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>返点政策亏损核算</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f2f2f7; padding: 15px; margin: 0; color: #1c1c1e; }
+        .card { max-width: 500px; margin: auto; background: #fff; border-radius: 20px; padding: 25px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        .input-group { margin-bottom: 20px; display: flex; flex-direction: column; }
+        label { font-size: 14px; color: #8e8e93; margin-bottom: 8px; font-weight: 500; }
+        input { padding: 15px; border: 1px solid #d1d1d6; border-radius: 14px; font-size: 18px; outline: none; background: #f9f9fb; -webkit-appearance: none; }
+        input:focus { border-color: #007aff; background: #fff; border-width: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; table-layout: fixed; }
+        th { padding: 12px 2px; color: #8e8e93; font-weight: 500; border-bottom: 1px solid #eee; text-align: center; }
+        td { padding: 16px 2px; text-align: center; border-bottom: 1px solid #f2f2f7; word-break: break-all; }
+        .target-row { background: #e8f2ff; font-weight: bold; color: #007aff; }
+        .loss { color: #ff3b30; font-weight: 600; }
+        .profit { color: #34c759; font-weight: 600; }
+        .footer { margin-top: 20px; padding: 12px; background: #fff2f2; border-radius: 12px; font-size: 12px; color: #d70015; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2 style="text-align:center; margin-top:0; font-size: 20px;">盈亏快速分析</h2>
+        <div class="input-group">
+            <label>厂商返点 (%)</label>
+            <input type="number" id="f" value="26" oninput="run()">
+        </div>
+        <div class="input-group">
+            <label>给客户返点 (%)</label>
+            <input type="number" id="c" value="33" oninput="run()">
+        </div>
+        <div id="display"></div>
+        <div class="footer">
+            <strong>📊 数据说明：</strong><br>
+            • 每百现金：收100元现金时，你多掏给厂商的钱。<br>
+            • 每百币：客户每消耗100元额度，你折算的亏损。
+        </div>
+    </div>
+    <script>
+        function run() {
+            const f = parseFloat(document.getElementById('f').value) || 0;
+            const cVal = parseFloat(document.getElementById('c').value) || 0;
+            let h = '<table><thead><tr><th style="width:20%">政策</th><th style="width:40%">每100现金</th><th style="width:40%">每100币</th></tr></thead><tbody>';
+            for (let i = cVal + 5; i >= cVal - 5; i--) {
+                let cur = parseFloat(i.toFixed(1));
+                if (cur < 0) continue;
+                let cashL = ((100 + cur) / (1 + f/100)) - 100;
+                let coinL = (100 / (1 + f/100)) - (100 / (1 + cur/100));
+                let isT = (Math.abs(cur - cVal) < 0.01);
+                h += `<tr class="${isT ? 'target-row' : ''}">
+                    <td>${cur}%</td>
+                    <td class="${cashL > 0.005 ? 'loss' : 'profit'}">${cashL > 0.005 ? '亏' + cashL.toFixed(2) : (cashL < -0.005 ? '赚' + Math.abs(cashL).toFixed(2) : '持平')}</td>
+                    <td class="${coinL > 0.005 ? 'loss' : 'profit'}">${coinL > 0.005 ? '亏' + coinL.toFixed(2) : (coinL < -0.005 ? '赚' + Math.abs(coinL).toFixed(2) : '持平')}</td>
+                </tr>`;
+            }
+            document.getElementById('display').innerHTML = h + '</tbody></table>';
+        }
+        run();
+    </script>
+</body>
+</html>
