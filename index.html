@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>广告盈亏决策系统 - 石一凡精修版</title>
+    <title>广告盈亏决策系统 - 支出账精修版</title>
     <style>
         :root {
             --primary: #007AFF; --danger: #FF3B30; --success: #34C759;
@@ -16,22 +16,20 @@
         }
 
         .container { 
-            /* 修改1：微调宽度，确保 Mac 13.3 屏幕全显 */
-            max-width: 1200px; margin: 0 auto; background: var(--card); 
+            max-width: 1140px; margin: 0 auto; background: var(--card); 
             padding: 16px; border-radius: 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.05);
             min-height: calc(100vh - 40px); display: flex; flex-direction: column;
-            position: relative; /* 为水印定位 */
+            position: relative;
         }
 
-        /* 修改2：添加右上角浅色水印 */
+        /* 右上角浅色水印 */
         .watermark {
-            position: absolute; top: 22px; right: 25px;
-            font-size: 13px; color: #1D1D1F; opacity: 0.12; /* 浅色文字效果 */
-            font-weight: 500; pointer-events: none; /* 防止遮挡按钮点击 */
+            position: absolute; top: 20px; right: 25px;
+            font-size: 13px; color: #1D1D1F; opacity: 0.12;
+            font-weight: 500; pointer-events: none;
         }
 
-        /* 顶部行业按钮区 - 留出右侧空间给水印 */
-        .preset-grid { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; padding-right: 120px; }
+        .preset-grid { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; padding-right: 150px; }
         .p-btn { 
             padding: 6px 12px; background: #FFF; border: 1px solid #D2D2D7; 
             border-radius: 9px; cursor: pointer; font-size: 11px; font-weight: 500;
@@ -39,7 +37,6 @@
         }
         .p-btn.active { background: #1D1D1F; color: white; border-color: #1D1D1F; }
 
-        /* 配置栏 */
         .config-bar { 
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; 
             padding: 15px; background: #F8F8F9; border-radius: 14px; margin-bottom: 18px;
@@ -51,18 +48,17 @@
         }
         .input-item input:focus { border-color: var(--primary); }
 
-        /* 表格样式 */
         .table-wrap { flex: 1; border-radius: 14px; border: 1px solid #E5E5EA; overflow: hidden; }
         table { width: 100%; border-collapse: collapse; text-align: center; table-layout: fixed; }
         
         thead th { background: #1D1D1F; color: white; font-size: 11px; padding: 12px 2px; border-right: 0.5px solid #3A3A3C; }
         .sub-head { background: #F2F2F7 !important; color: #636366 !important; font-size: 10px !important; border-bottom: 1px solid #D2D2D7 !important; }
 
-        tbody td { border: 0.5px solid #E5E5EA; font-size: 13px; padding: 12px 4px; }
-        .row-label { background: #F2F2F7 !important; font-weight: bold; width: 65px; }
+        tbody td { border: 0.5px solid #E5E5EA; font-size: 12px; padding: 12px 4px; }
+        .row-label { background: #F2F2F7 !important; font-weight: bold; width: 60px; }
 
         .is-base-row { background: #FFFBE6 !important; }
-        .is-base-row td { font-weight: 800; font-size: 15px !important; color: #000; }
+        .is-base-row td { font-weight: 800; font-size: 14px !important; color: #000; }
 
         .is-focus { 
             background: #FFF !important; color: var(--primary) !important; 
@@ -102,7 +98,7 @@ const industryData = [
     { n: "短剧搜索", f: 22 }, { n: "短剧信息流", f: 37 }, 
     { n: "四品搜索", f: 19 }, { n: "四品信息流", f: 30 }, 
     { n: "直营电商", f: 37 }, 
-    { n: "引流搜索", f: 22 }, { n: "引流信息流", f: 30 }, // 根据图片更新了引流搜索为22
+    { n: "引流搜索", f: 22 }, { n: "引流信息流", f: 30 }, 
     { n: "旅行社搜索", f: 19 }, { n: "旅行社信息流", f: 30 }
 ];
 
@@ -127,18 +123,19 @@ function calc() {
     const getRaw = (id) => parseFloat(document.getElementById(id).value) || 0;
     const q_raw = getRaw('q_base');
     const y_raw = getRaw('y_base');
+    
     const f = getRaw('f_base') / 100, c = getRaw('c_base') / 100, q = q_raw / 100, y = y_raw / 100;
 
     const q_list = [q - 0.005, q, q + 0.005];
     const y_list = [y - 0.005, y, y + 0.005];
 
-    let headHtml = `<tr><th rowspan="2" style="width:65px">客户报价</th>`;
-    q_list.forEach((qv, i) => { 
+    let headHtml = `<tr><th rowspan="2" style="width:60px">客户报价</th>`;
+    q_list.forEach((qv) => { 
         headHtml += `<th colspan="3">季度返点: ${(qv*100).toFixed(1)}%</th>`; 
     });
     headHtml += `</tr><tr class="sub-head">`;
     for(let i=0; i<3; i++) {
-        y_list.forEach((yv, j) => { 
+        y_list.forEach((yv) => { 
             headHtml += `<th class="sub-head">${(yv*100).toFixed(1)}% (年)</th>`; 
         });
     }
@@ -153,15 +150,18 @@ function calc() {
         
         q_list.forEach((qv, qIdx) => {
             y_list.forEach((yv, yIdx) => {
-                let firstPay = (100 * (1 + curC)) / (1 + f);
-                let actualCost = firstPay * (1 - (qv + yv));
-                let res = (100 - actualCost).toFixed(2);
+                // --- 支出账核心算法 ---
+                // 1. 每实付厂家现金 100 元，获得账户流水 = 100 * (1 + f)
+                // 2. 同样的流水，从客户处收回现金 = (100 * (1 + f)) / (1 + curC)
+                // 3. 厂家端实际支出的净现金 = 100 * (1 - qv - yv)
+                // 4. 净利润 = 客户收回 - 实际净支
+                
+                let incomeFromClient = (100 * (1 + f)) / (1 + curC);
+                let netCostToVendor = 100 * (1 - qv - yv);
+                let res = (incomeFromClient - netCostToVendor).toFixed(2);
                 
                 let isTargetCol = (qIdx===1 && yIdx===1);
-                
-                let hideThis = false;
-                if (q_raw === 0 && qIdx !== 1) hideThis = true;
-                if (y_raw === 0 && yIdx !== 1) hideThis = true;
+                let hideThis = (q_raw === 0 && qIdx !== 1) || (y_raw === 0 && yIdx !== 1);
 
                 let hideClass = hideThis ? 'empty-val' : '';
                 let focusClass = (isBaseRow && isTargetCol) ? 'is-focus' : '';
